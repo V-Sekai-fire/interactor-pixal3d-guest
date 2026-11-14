@@ -43,7 +43,7 @@ func _initialize() -> void:
 			_fail("no local RenderingDevice (run windowed, not --headless)")
 			return
 	print("STEP attach %s" % _sb.vmcall("pixal3d_attach", _rd, 4096))
-	print("STEP start %s" % _sb.vmcall("pixal3d_dino_start", _a.models, _a.mesh, _a.get("opts", "beams=1")))
+	print("STEP start %s" % _sb.vmcall("pixal3d_dino_start", _a.model, _a.ref, _a.get("opts", "")))
 	_t0 = Time.get_ticks_msec()
 
 
