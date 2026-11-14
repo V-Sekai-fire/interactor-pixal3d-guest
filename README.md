@@ -20,3 +20,7 @@ MIT; see LICENSE.
 ## Spike result (DINOv3 encoder)
 
 `pixal3d_stages.elf` on ggml-rd, RTX 4090 through Godot's RenderingDevice, f32 GGUF, 512 px input, against a CPU fp32 PyTorch dump (transformers 4.57.1): 40 taps, 0 failed, 0 missing, worst rel-L2 9.8e-7 (the cond output), `|got-ref| <= 2e-3 + 2e-3 |ref|` on every element. With `control=perturb` (input nudged by 0.05 sin(i)) the gate reports `CONTROL DETECTED`, 38 of 40 taps failing. With the stock `ggml_conv_2d` the same gate failed 38 of 40 taps, which is how the f16 columns were found. Run: `godot --path tests/stages --script run_stage.gd -- --elf=... --model=dino_f32.gguf --ref=reference_dino.gguf`. The Godot process aborts at exit after printing the result line (exit 134), so read the `RESULT:` line, not the exit code.
+
+## Spike result (sparse-structure flow)
+
+`pixal3d_stages.elf --stage=ssflow`, same host, the 1.3B flow DiT with f16 matrices and f32 norms (the checkpoint's bf16 values, which f16 holds exactly) against a CPU fp32 PyTorch forward (x seeded, t=500, cond from the DINOv3 dump): rel-L2 5.5e-4 against a tolerance of 2e-3, about 6.5 s including the 2.6 GB weight load. `control=perturb` (x nudged by 0.05 sin(i)) gives rel-L2 6.0e-2 and reports `CONTROL DETECTED`. A GGUF with every tensor in bf16 aborts in ggml (the graph adds bf16 biases to f32 activations), so the converter's f16 type is the one to use until ggml-rd takes bf16 elementwise operands.
