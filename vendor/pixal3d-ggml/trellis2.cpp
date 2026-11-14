@@ -22,6 +22,28 @@
 #include <thread>
 #include <unordered_map>
 
+static const trellis2_io * g_trellis2_io = nullptr;
+void trellis2_set_io(const trellis2_io * io) { g_trellis2_io = io; }
+
+static bool io_read_at(const std::string & path, uint64_t off, void * dst, size_t n) {
+    if (g_trellis2_io) return g_trellis2_io->read(g_trellis2_io->user, path.c_str(), off, dst, n) == n;
+    std::ifstream fin(path, std::ios::binary);
+    if (!fin) return false;
+    fin.seekg((std::streamoff) off, std::ios::beg);
+    return (bool) fin.read(reinterpret_cast<char *>(dst), (std::streamsize) n);
+}
+
+struct io_reader { const std::string * path; };
+static size_t io_reader_cb(void * user, void * out, uint64_t off, size_t n) {
+    return io_read_at(*static_cast<io_reader *>(user)->path, off, out, n) ? n : 0;
+}
+static gguf_context * io_gguf_open(const std::string & path, gguf_init_params params) {
+    if (!g_trellis2_io) return gguf_init_from_file(path.c_str(), params);
+    io_reader r{&path};
+    return gguf_init_from_callback(io_reader_cb, &r, 16u << 20, UINT64_MAX >> 1, params);
+}
+
+
 /*****************************************************************************
 ** Helpers
 *****************************************************************************/
@@ -277,7 +299,7 @@ trellis2_ss_flow_load(const std::string & path, bool load_tensors, std::string *
     params.no_alloc = true;
     params.ctx      = &m->ctx;
 
-    m->gguf = gguf_init_from_file(path.c_str(), params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m;
@@ -331,12 +353,6 @@ trellis2_ss_flow_load(const std::string & path, bool load_tensors, std::string *
             return nullptr;
         }
 
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) {
-            set_error(error, "cannot reopen file for weight data: " + path);
-            trellis2_ss_flow_free(m);
-            return nullptr;
-        }
         const size_t data_off = gguf_get_data_offset(m->gguf);
         const int64_t nt = gguf_get_n_tensors(m->gguf);
         std::vector<uint8_t> buf;
@@ -346,8 +362,7 @@ trellis2_ss_flow_load(const std::string & path, bool load_tensors, std::string *
             const size_t nb  = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            fin.seekg((std::streamoff) off, std::ios::beg);
-            if (!fin.read(reinterpret_cast<char *>(buf.data()), (std::streamsize) nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_ss_flow_free(m);
                 return nullptr;
@@ -859,7 +874,7 @@ trellis2_ss_dec_load(const std::string & path, bool load_tensors, std::string * 
     params.no_alloc = true;
     params.ctx      = &m->ctx;
 
-    m->gguf = gguf_init_from_file(path.c_str(), params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m;
@@ -905,12 +920,6 @@ trellis2_ss_dec_load(const std::string & path, bool load_tensors, std::string * 
             trellis2_ss_dec_free(m);
             return nullptr;
         }
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) {
-            set_error(error, "cannot reopen file for weight data: " + path);
-            trellis2_ss_dec_free(m);
-            return nullptr;
-        }
         const size_t data_off = gguf_get_data_offset(m->gguf);
         const int64_t nt = gguf_get_n_tensors(m->gguf);
         std::vector<uint8_t> buf;
@@ -920,8 +929,7 @@ trellis2_ss_dec_load(const std::string & path, bool load_tensors, std::string * 
             const size_t nb  = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            fin.seekg((std::streamoff) off, std::ios::beg);
-            if (!fin.read(reinterpret_cast<char *>(buf.data()), (std::streamsize) nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_ss_dec_free(m);
                 return nullptr;
@@ -1123,27 +1131,6 @@ struct trellis2_dino_model {
     std::unordered_map<std::string, ggml_tensor *> tensors;
 };
 
-static const trellis2_io * g_trellis2_io = nullptr;
-void trellis2_set_io(const trellis2_io * io) { g_trellis2_io = io; }
-
-static bool dino_read_at(const std::string & path, uint64_t off, void * dst, size_t n) {
-    if (g_trellis2_io) return g_trellis2_io->read(g_trellis2_io->user, path.c_str(), off, dst, n) == n;
-    std::ifstream fin(path, std::ios::binary);
-    if (!fin) return false;
-    fin.seekg((std::streamoff) off, std::ios::beg);
-    return (bool) fin.read(reinterpret_cast<char *>(dst), (std::streamsize) n);
-}
-
-struct dino_reader { const std::string * path; };
-static size_t dino_reader_cb(void * user, void * out, uint64_t off, size_t n) {
-    return dino_read_at(*static_cast<dino_reader *>(user)->path, off, out, n) ? n : 0;
-}
-static gguf_context * dino_gguf_open(const std::string & path, gguf_init_params params) {
-    if (!g_trellis2_io) return gguf_init_from_file(path.c_str(), params);
-    dino_reader r{&path};
-    return gguf_init_from_callback(dino_reader_cb, &r, 16u << 20, UINT64_MAX >> 1, params);
-}
-
 trellis2_dino_model *
 trellis2_dino_load(const std::string & path, bool load_tensors, std::string * error,
                    const char * device) {
@@ -1153,7 +1140,7 @@ trellis2_dino_load(const std::string & path, bool load_tensors, std::string * er
     params.no_alloc = true;
     params.ctx      = &m->ctx;
 
-    m->gguf = dino_gguf_open(path, params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m;
@@ -1209,7 +1196,7 @@ trellis2_dino_load(const std::string & path, bool load_tensors, std::string * er
             const size_t nb  = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            if (!dino_read_at(path, off, buf.data(), nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_dino_free(m);
                 return nullptr;
@@ -1913,7 +1900,7 @@ trellis2_slat_flow_load(const std::string & path, bool load_tensors, std::string
     params.no_alloc = true;
     params.ctx      = &m->ctx;
 
-    m->gguf = gguf_init_from_file(path.c_str(), params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m;
@@ -1974,12 +1961,6 @@ trellis2_slat_flow_load(const std::string & path, bool load_tensors, std::string
             trellis2_slat_flow_free(m);
             return nullptr;
         }
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) {
-            set_error(error, "cannot reopen file for weight data: " + path);
-            trellis2_slat_flow_free(m);
-            return nullptr;
-        }
         const size_t data_off = gguf_get_data_offset(m->gguf);
         const int64_t nt = gguf_get_n_tensors(m->gguf);
         std::vector<uint8_t> buf;
@@ -1989,8 +1970,7 @@ trellis2_slat_flow_load(const std::string & path, bool load_tensors, std::string
             const size_t nb  = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            fin.seekg((std::streamoff) off, std::ios::beg);
-            if (!fin.read(reinterpret_cast<char *>(buf.data()), (std::streamsize) nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_slat_flow_free(m);
                 return nullptr;
@@ -2456,7 +2436,7 @@ dec_load_impl(const std::string & path, bool load_tensors, std::string * error,
     params.no_alloc = true;
     params.ctx      = &m->ctx;
 
-    m->gguf = gguf_init_from_file(path.c_str(), params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m;
@@ -2499,12 +2479,6 @@ dec_load_impl(const std::string & path, bool load_tensors, std::string * error,
             trellis2_shape_dec_free(m);
             return nullptr;
         }
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) {
-            set_error(error, "cannot reopen file for weight data: " + path);
-            trellis2_shape_dec_free(m);
-            return nullptr;
-        }
         const size_t data_off = gguf_get_data_offset(m->gguf);
         const int64_t nt = gguf_get_n_tensors(m->gguf);
         std::vector<uint8_t> buf;
@@ -2514,8 +2488,7 @@ dec_load_impl(const std::string & path, bool load_tensors, std::string * error,
             const size_t nb  = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            fin.seekg((std::streamoff) off, std::ios::beg);
-            if (!fin.read(reinterpret_cast<char *>(buf.data()), (std::streamsize) nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_shape_dec_free(m);
                 return nullptr;
@@ -3087,7 +3060,7 @@ trellis2_shape_enc_load(const std::string & path, bool load_tensors, std::string
     gguf_init_params params;
     params.no_alloc = true;
     params.ctx      = &m->ctx;
-    m->gguf = gguf_init_from_file(path.c_str(), params);
+    m->gguf = io_gguf_open(path, params);
     if (!m->gguf) {
         set_error(error, "gguf_init_from_file failed (not a GGUF file?): " + path);
         delete m; return nullptr;
@@ -3125,8 +3098,6 @@ trellis2_shape_enc_load(const std::string & path, bool load_tensors, std::string
             set_error(error, "failed to allocate weights on backend " + m->backend_name);
             trellis2_shape_enc_free(m); return nullptr;
         }
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) { set_error(error, "cannot reopen file for weight data: " + path); trellis2_shape_enc_free(m); return nullptr; }
         const size_t data_off = gguf_get_data_offset(m->gguf);
         const int64_t nt = gguf_get_n_tensors(m->gguf);
         std::vector<uint8_t> buf;
@@ -3136,8 +3107,7 @@ trellis2_shape_enc_load(const std::string & path, bool load_tensors, std::string
             const size_t nb = ggml_nbytes(t);
             const size_t off = data_off + gguf_get_tensor_offset(m->gguf, i);
             buf.resize(nb);
-            fin.seekg((std::streamoff) off, std::ios::beg);
-            if (!fin.read(reinterpret_cast<char *>(buf.data()), (std::streamsize) nb)) {
+            if (!io_read_at(path, off, buf.data(), nb)) {
                 set_error(error, std::string("failed reading weight '") + name + "' from file");
                 trellis2_shape_enc_free(m); return nullptr;
             }

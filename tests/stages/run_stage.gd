@@ -1,4 +1,4 @@
-# pixal3d_dino.elf in a Sandbox on a local RenderingDevice: gates the DINOv3 encoder against a reference dump.
+# pixal3d_stages.elf in a Sandbox on a local RenderingDevice: gates the DINOv3 encoder against a reference dump.
 #   godot --path tests/dino --script run_dino.gd -- --elf=E --model=M.gguf --ref=R.gguf [--opts="control=perturb"] [--cpu]
 # --cpu attaches no RenderingDevice, so ggml-rd runs its CPU kernels (the control).
 extends SceneTree
@@ -43,7 +43,7 @@ func _initialize() -> void:
 			_fail("no local RenderingDevice (run windowed, not --headless)")
 			return
 	print("STEP attach %s" % _sb.vmcall("pixal3d_attach", _rd, 4096))
-	print("STEP start %s" % _sb.vmcall("pixal3d_dino_start", _a.model, _a.ref, _a.get("opts", "")))
+	print("STEP start %s" % _sb.vmcall("pixal3d_%s_start" % _a.get("stage", "dino"), _a.model, _a.ref, _a.get("opts", "")))
 	_t0 = Time.get_ticks_msec()
 
 

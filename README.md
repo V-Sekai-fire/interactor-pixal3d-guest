@@ -8,7 +8,7 @@ Not a fork. The sources are copied into `vendor/pixal3d-ggml` from V-Sekai-archi
 
 ## Plan
 
-1. Spike: one stage (the DINOv3 encoder, `pixal3d_dino.elf`) on ggml-rd, parity against the PyTorch reference dump (`vendor/pixal3d-ggml/scripts/dump_dino_reference.py`), with a planted control (`control=perturb` must report DETECTED).
+1. Spike: one stage (the DINOv3 encoder, `pixal3d_stages.elf`) on ggml-rd, parity against the PyTorch reference dump (`vendor/pixal3d-ggml/scripts/dump_dino_reference.py`), with a planted control (`control=perturb` must report DETECTED).
 2. An authoritative `supports_op` walk over the built graphs.
 3. bf16 GGUFs as the reference, then Q4_0 and Q8_0 `mul_mat` kernels in ggml-rd, which the large flow models need.
 4. Guest wiring (read callbacks, pump), then speed against ggml-vulkan.
@@ -19,4 +19,4 @@ MIT; see LICENSE.
 
 ## Spike result (DINOv3 encoder)
 
-`pixal3d_dino.elf` on ggml-rd, RTX 4090 through Godot's RenderingDevice, f32 GGUF, 512 px input, against a CPU fp32 PyTorch dump (transformers 4.57.1): 40 taps, 0 failed, 0 missing, worst rel-L2 9.8e-7 (the cond output), `|got-ref| <= 2e-3 + 2e-3 |ref|` on every element. With `control=perturb` (input nudged by 0.05 sin(i)) the gate reports `CONTROL DETECTED`, 38 of 40 taps failing. With the stock `ggml_conv_2d` the same gate failed 38 of 40 taps, which is how the f16 columns were found. Run: `godot --path tests/dino --script run_dino.gd -- --elf=... --model=dino_f32.gguf --ref=reference_dino.gguf`. The Godot process aborts at exit after printing the result line (exit 134), so read the `RESULT:` line, not the exit code.
+`pixal3d_stages.elf` on ggml-rd, RTX 4090 through Godot's RenderingDevice, f32 GGUF, 512 px input, against a CPU fp32 PyTorch dump (transformers 4.57.1): 40 taps, 0 failed, 0 missing, worst rel-L2 9.8e-7 (the cond output), `|got-ref| <= 2e-3 + 2e-3 |ref|` on every element. With `control=perturb` (input nudged by 0.05 sin(i)) the gate reports `CONTROL DETECTED`, 38 of 40 taps failing. With the stock `ggml_conv_2d` the same gate failed 38 of 40 taps, which is how the f16 columns were found. Run: `godot --path tests/stages --script run_stage.gd -- --elf=... --model=dino_f32.gguf --ref=reference_dino.gguf`. The Godot process aborts at exit after printing the result line (exit 134), so read the `RESULT:` line, not the exit code.

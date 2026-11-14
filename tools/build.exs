@@ -1,4 +1,4 @@
-# Builds pixal3d_dino.elf from this checkout and the goal manifest's sibling checkouts (2-contract/guest-runtime,
+# Builds pixal3d_stages.elf from this checkout and the goal manifest's sibling checkouts (2-contract/guest-runtime,
 # ggml-rd and ggml), the way transport-meshing-pen's build.sh builds its stage ELFs.
 #   elixir tools/build.exs [--sysroot=<repository-riscv64-sysroot>] [--build=<dir>]
 defmodule Build do
@@ -24,9 +24,9 @@ defmodule Build do
     unless File.exists?(Path.join(build, "build.ninja")) do
       run("cmake", ["-S", @root, "-B", build, "-G", "Ninja", "-DCMAKE_TOOLCHAIN_FILE=#{toolchain}", "-DWEFT_ROOT=#{weft}"])
     end
-    run("cmake", ["--build", build, "--target", "pixal3d_dino"])
-    elf = File.read!(Path.join(build, "pixal3d_dino.elf"))
-    IO.puts("== pixal3d_dino.elf: #{byte_size(elf)} bytes, sha256 #{Base.encode16(:crypto.hash(:sha256, elf), case: :lower)}")
+    run("cmake", ["--build", build, "--target", "pixal3d_stages"])
+    elf = File.read!(Path.join(build, "pixal3d_stages.elf"))
+    IO.puts("== pixal3d_stages.elf: #{byte_size(elf)} bytes, sha256 #{Base.encode16(:crypto.hash(:sha256, elf), case: :lower)}")
   end
 
   # A Linux slangc rewrites every emit with an include of its prelude; one committed emit kept aside restores the inline form.

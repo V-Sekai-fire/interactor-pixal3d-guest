@@ -51,10 +51,10 @@ jobs:
           echo "$PWD/.pixi/envs/default/bin" >> "$GITHUB_PATH"
           .pixi/envs/default/bin/clang++ --print-targets | grep -q riscv64
           .pixi/envs/default/bin/clang++ --version | head -1
-      - name: pixal3d_dino.elf from a clean runner
+      - name: pixal3d_stages.elf from a clean runner
         working-directory: weft/3-interactor/pixal3d-guest
         run: elixir tools/build.exs --build="$RUNNER_TEMP/rv64"
       - uses: actions/upload-artifact@v4
         with:
           name: pixal3d-elf-${{ github.sha }}
-          path: ${{ runner.temp }}/rv64/pixal3d_dino.elf
+          path: ${{ runner.temp }}/rv64/pixal3d_stages.elf
