@@ -1297,6 +1297,17 @@ void dino_rope_tables(int hp_grid, int wp_grid, int head_dim, float theta,
 
 } // namespace
 
+// ggml_conv_2d rounds the im2col columns to f16 for f32 weights; keep them f32 so the patch
+// embedding matches the reference.
+static ggml_tensor * dino_conv_2d_f32(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b, int s0, int s1) {
+    ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, s1, 0, 0, 1, 1, true, GGML_TYPE_F32);
+    ggml_tensor * result = ggml_mul_mat(ctx,
+            ggml_reshape_2d(ctx, im2col, im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1]),
+            ggml_reshape_2d(ctx, a, a->ne[0] * a->ne[1] * a->ne[2], a->ne[3]));
+    result = ggml_reshape_4d(ctx, result, im2col->ne[1], im2col->ne[2], im2col->ne[3], a->ne[3]);
+    return ggml_cont(ctx, ggml_permute(ctx, result, 0, 1, 3, 2));
+}
+
 bool trellis2_dino_encode(trellis2_dino_model * m,
                           const float * pixel_values, int image_size,
                           trellis2_dino_cond & out,
@@ -1404,8 +1415,8 @@ bool trellis2_dino_encode(trellis2_dino_model * m,
     };
 
     // ── embeddings: patch conv + CLS + register tokens ───────────────────────
-    ggml_tensor * pconv = ggml_conv_2d(ctx, W("embeddings.patch_embeddings.weight"), pix,
-                                       hp.patch_size, hp.patch_size, 0, 0, 1, 1); // [Wp, Wp, C, 1]
+    ggml_tensor * pconv = dino_conv_2d_f32(ctx, W("embeddings.patch_embeddings.weight"), pix,
+                                           hp.patch_size, hp.patch_size); // [Wp, Wp, C, 1]
     pconv = ggml_reshape_2d(ctx, pconv, P, C);                    // [P, C] (token-fastest)
     pconv = ggml_cont(ctx, ggml_transpose(ctx, pconv));           // [C, P]
     pconv = ggml_add(ctx, pconv, W("embeddings.patch_embeddings.bias"));
