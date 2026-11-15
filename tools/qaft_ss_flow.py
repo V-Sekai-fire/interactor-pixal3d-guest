@@ -149,6 +149,7 @@ def main():
         print(f"traj {i + 1}/{n_total} {os.path.basename(path)} train_calls={len(train_calls)} eval_calls={len(eval_calls)} "
               f"{time.time() - t0:.0f}s", flush=True)
     del dino
+    cur["kind"] = None  # the hooks must not record the training and eval forwards
     torch.cuda.empty_cache()
 
     # ---- block-wise training
@@ -208,19 +209,22 @@ def main():
         del sb, opt
         torch.cuda.empty_cache()
 
+    save_file({k: v.contiguous() for k, v in new_sd.items()}, args.out + ".safetensors")
+    json.dump({"args": cfg, "name": "ss_flow_qaft"}, open(args.out + ".json", "w"))
+    print(f"wrote {args.out}.safetensors", flush=True)
+
     # ---- whole-model check on held-out calls: plain Q4_0 vs trained, against the teacher
     def quantized_model(weights):
         m = SparseStructureFlowModel(**cfg)
         m.convert_to(torch.float32)
         m.load_state_dict(weights, strict=False)
         n = 0
-        for name, p in m.named_parameters():
-            pass
+        params = dict(m.named_parameters())
         for k in list(weights.keys()):
             w = weights[k]
             if w.dim() >= 2 and not any(s in k for s in ("gamma", "modulation", "norm")) and w.shape[-1] % 32 == 0:
                 with torch.no_grad():
-                    dict(m.named_parameters())[k].copy_(q4_0_fq(w))
+                    params[k].copy_(q4_0_fq(w))
                 n += 1
         return m.eval().to(dev), n
 
@@ -237,9 +241,6 @@ def main():
         del m
         torch.cuda.empty_cache()
 
-    save_file({k: v.contiguous().to(torch.bfloat16) if False else v.contiguous() for k, v in new_sd.items()}, args.out + ".safetensors")
-    json.dump({"args": cfg, "name": "ss_flow_qaft"}, open(args.out + ".json", "w"))
-    print(f"wrote {args.out}.safetensors", flush=True)
 
 
 if __name__ == "__main__":
