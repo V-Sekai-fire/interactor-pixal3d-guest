@@ -1,0 +1,54 @@
+diff --git a/alchemy3d/modules/dino.py b/alchemy3d/modules/dino.py
+index dac13c0..d25f802 100644
+--- a/alchemy3d/modules/dino.py
++++ b/alchemy3d/modules/dino.py
+@@ -62,6 +62,8 @@ class DinoV3FeatureExtractor:
+     """
+     def __init__(self, model_name: str, image_size=512):
+         self.model_name = model_name
++        import os
++        model_name = os.environ.get("DINOV3_LOCAL", model_name)  # ungated mirror
+         from ..utils.hub import from_pretrained
+         self.model = from_pretrained(DINOv3ViTModel.from_pretrained, model_name)
+         self.model.cuda()
+diff --git a/alchemy3d/pipelines/base.py b/alchemy3d/pipelines/base.py
+index ec1cd02..daa51fd 100644
+--- a/alchemy3d/pipelines/base.py
++++ b/alchemy3d/pipelines/base.py
+@@ -81,7 +81,16 @@ class Pipeline:
+         raise RuntimeError("No device found.")
+ 
+     def to(self, device: torch.device) -> None:
+-        for model in self.models.values():
++        import os
++        for name, model in self.models.items():
++            if (os.environ.get("A3D_BF16") or os.environ.get("A3D_OFFLOAD")) and "flow" in name:  # scrappy: fp32 denoisers do not fit with a shared GPU
++                if os.environ.get("A3D_BF16"):
++                    model.to(torch.bfloat16)
++                if str(device).startswith("cuda"):  # swap each denoiser onto the GPU only while it runs
++                    model.to("cpu")
++                    model.register_forward_pre_hook(lambda m, a, kw=None: (m.to(device), None)[1])
++                    model.register_forward_hook(lambda m, a, o: (m.to("cpu"), torch.cuda.empty_cache(), None)[2])
++                    continue
+             model.to(device)
+         self._device = device
+ 
+diff --git a/alchemy3d/pipelines/text_edit3d_pipelines.py b/alchemy3d/pipelines/text_edit3d_pipelines.py
+index 325d200..c01733a 100644
+--- a/alchemy3d/pipelines/text_edit3d_pipelines.py
++++ b/alchemy3d/pipelines/text_edit3d_pipelines.py
+@@ -106,6 +106,14 @@ class Alchemy3DInstructPipeline(TextConditionedMixin, Alchemy3DPipeline):
+         )
+         print(f'Sampling texture SLat took {time.time() - start}s')
+         start = time.time()
++        import os
++        if os.environ.get("A3D_BF16") or os.environ.get("A3D_OFFLOAD"):  # free the GPU for the decoders
++            for k, m_ in self.models.items():
++                if "encoder" in k:
++                    m_.to("cpu")
++            self.text_cond_model.to("cpu")
++            import gc; gc.collect(); torch.cuda.empty_cache()
++            print("MEM alloc GB", torch.cuda.memory_allocated()/2**30, "free GB", torch.cuda.mem_get_info()[0]/2**30, [ (k, next(m_.parameters()).device.type) for k,m_ in self.models.items() if hasattr(m_,"parameters")], flush=True)
+         meshes = self.decode_latent(shape_slat, tex_slat, resolution)
+         print(f'Decoding latent took {time.time() - start}s')
+         if comparison_video:

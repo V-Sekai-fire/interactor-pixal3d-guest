@@ -1,0 +1,77 @@
+[workspace]
+name = "pixal3d-desktop"
+description = "Image(s) to 3D (Pixal3D multi-view), part segmentation and text edits (Alchemy3D), UV bake and preview, as one pixi pipeline"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[system-requirements]
+libc = { family = "glibc", version = "2.34" }
+
+[dependencies]
+python = "3.12.*"
+numpy = "*"
+scipy = "*"
+trimesh = "*"
+pillow = "*"
+pytest = "*"
+git = "*"
+uv = "*"
+
+[pypi-dependencies]
+mitsuba = "*"
+drjit = "*"
+
+[feature.gpu.pypi-dependencies]
+torch = "==2.11.0"
+torchvision = "*"
+transformers = "*"
+safetensors = "*"
+huggingface_hub = "*"
+modelscope = "*"
+einops = "*"
+easydict = "*"
+imageio = "*"
+imageio-ffmpeg = "*"
+opencv-python-headless = "*"
+kornia = "*"
+timm = "*"
+lpips = "*"
+zstandard = "*"
+scikit-learn = "*"
+psutil = "*"
+tqdm = "*"
+utils3d = { git = "https://github.com/EasternJournalist/utils3d.git", rev = "9a4eb15e4021b67b12c460c7057d642626897ec8" }
+
+[environments]
+default = []
+gpu = ["gpu"]
+
+# ---- every path comes from the environment; the defaults sit under the project's own .cache
+[activation.env]
+PIXAL3D_HOME = "${PIXAL3D_HOME:-$PIXI_PROJECT_ROOT/.cache}"
+PIXAL3D_OUT = "${PIXAL3D_OUT:-$PIXI_PROJECT_ROOT/out}"
+PYTHONPATH = "$PIXI_PROJECT_ROOT/pipeline:$PIXI_PROJECT_ROOT/pipeline/shims:$PIXI_PROJECT_ROOT/tools/uvraster:${PIXAL3D_HOME:-$PIXI_PROJECT_ROOT/.cache}/Alchemy3D:${PIXAL3D_HOME:-$PIXI_PROJECT_ROOT/.cache}/space:${PYTHONPATH:-}"
+
+[tasks]
+test = { cmd = "pytest pipeline/tests -q -p no:cacheprovider", description = "artifact gates and their planted controls (CPU)" }
+render = { cmd = "python pipeline/render.py", description = "Mitsuba 3 previews of the baked GLB (CPU or CUDA)" }
+
+# ---- GPU stages (run with -e gpu, the pipeline task does that itself)
+[feature.gpu.tasks]
+test-gpu = { cmd = "pytest tools/uvraster/tests -q -p no:cacheprovider", description = "UV rasteriser tests with planted defects (CUDA)" }
+setup = { cmd = "python pipeline/setup_gpu.py", description = "CUDA wheels (flex_gemm, cumesh, o_voxel), Alchemy3D checkout plus patch, Blender, and the nvdiffrast stand-in check" }
+fetch = { cmd = "python pipeline/fetch.py", description = "model weights from Hugging Face into PIXAL3D_HOME (a one-time download; the run itself is offline once they exist)" }
+generate = { cmd = "python pipeline/generate.py", description = "view image(s) -> generated.glb (Pixal3D multi-view); PIXAL3D_SOURCE_GLB skips it" }
+segment = { cmd = "python pipeline/segment.py", description = "source.glb + 1-8 2D part maps -> per-face labels (Alchemy3D-Segment)" }
+edit = { cmd = "python pipeline/edit.py", description = "source.glb + instruction -> edited mesh (Alchemy3D-Instruct)" }
+bake = { cmd = "python pipeline/bake.py", description = "edited mesh -> textured GLB (UV unwrap, torch UV rasteriser, no nvdiffrast)" }
+
+[tasks.pipeline]
+description = "views -> 3D -> parts -> text edit -> textured GLB -> preview. Set PIXAL3D_IMAGE, PIXAL3D_INSTRUCTION (and PIXAL3D_MAPS for the segment stage)."
+depends-on = [
+  { task = "generate", environment = "gpu" },
+  { task = "segment", environment = "gpu" },
+  { task = "edit", environment = "gpu" },
+  { task = "bake", environment = "gpu" },
+  { task = "render", environment = "default" },
+]
