@@ -28,3 +28,7 @@ MIT; see LICENSE.
 ## Spike result (sparse-structure flow in Q4_0)
 
 `convert_ss_flow_to_gguf.py --ftype 3` writes the matmul weights as Q4_0 (213 tensors; the rest stay f32, one small input layer f16): 0.78 GB against 2.6 GB for f16. It runs on ggml-rd with the new Q4_0 MUL_MAT kernels (contract-ggml-rd branch `dev/q4_0-mul-mat`, built into the guest through a `WEFT_ROOT` that points `2-contract/ggml-rd` at that branch). Against a reference forward whose weights went through the same Q4_0 round trip (`tests/ref_ss_flow_q4.py`), rel-L2 is 2.9e-6: the kernel is right. Against the fp32 reference the same forward is 0.17 off, all of it weight rounding, so plain Q4_0 needs quantization-aware fine-tuning before it is shippable.
+
+## Spike result (sparse-structure decoder)
+
+`--stage=ssdec`: the decoder (f16 weights, 0.15 GB) on a sampled z_s (the fp32 flow on the fixture's conditioning, `tools/sample_ss_latent.py`) against the CPU fp32 decoder: rel-L2 1.4e-4 over the 64^3 logits, 18243 voxels occupied, one voxel flipped (its reference logit lies within 1.0 of zero; a flip of any more confident voxel fails). `control=perturb` gives rel-L2 1.3e-2 with 161 flips and reports `CONTROL DETECTED`. The Godot process sometimes hangs after printing the result instead of aborting; the runner needs a timeout.

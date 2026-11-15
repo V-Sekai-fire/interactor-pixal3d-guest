@@ -91,7 +91,7 @@ struct Job {
 	double rtol = 2e-3;
 	bool perturb = false;
 	double rel_l2 = 2e-3;
-	bool ssflow = false;
+	int stage = 0; // 0 dino, 1 ssflow, 2 ssdec
 };
 static Job g_job;
 
@@ -215,6 +215,20 @@ static void dino_job(void *) {
 	trellis2_dino_free(model);
 }
 
+static std::vector<uint8_t> read_all(const std::string &path) {
+	std::vector<uint8_t> bundle;
+	const uint64_t chunk = uint64_t(16) << 20;
+	for (;;) {
+		const size_t at = bundle.size();
+		bundle.resize(at + chunk);
+		const size_t got = read_into(path, at, bundle.data() + at, chunk);
+		bundle.resize(at + got);
+		if (got < chunk) {
+			return bundle;
+		}
+	}
+}
+
 // Sparse-structure flow forward against the SSFREF01 bundle (x, t, cond, reference output).
 static void ssflow_job(void *) {
 	static trellis2_io io = { io_read, nullptr };
@@ -222,17 +236,7 @@ static void ssflow_job(void *) {
 	if (ggml_backend_reg_dev_count(ggml_backend_rd_reg()) == 0) {
 		pump::fail("pixal3d: no ggml-rd device (call pixal3d_attach first)");
 	}
-	std::vector<uint8_t> bundle;
-	const uint64_t chunk = uint64_t(16) << 20;
-	for (;;) {
-		const size_t at = bundle.size();
-		bundle.resize(at + chunk);
-		const size_t got = read_into(g_job.ref, at, bundle.data() + at, chunk);
-		bundle.resize(at + got);
-		if (got < chunk) {
-			break;
-		}
-	}
+	const std::vector<uint8_t> bundle = read_all(g_job.ref);
 	if (bundle.size() < 36 || std::memcmp(bundle.data(), "SSFREF01", 8) != 0) {
 		pump::fail("pixal3d: bad SSFREF01 bundle " + g_job.ref);
 	}
@@ -280,6 +284,65 @@ static void ssflow_job(void *) {
 	g_result.assign(line.begin(), line.end());
 }
 
+// Sparse-structure decoder against the SSDEC001 bundle (latent, reference logits).
+static void ssdec_job(void *) {
+	static trellis2_io io = { io_read, nullptr };
+	trellis2_set_io(&io);
+	if (ggml_backend_reg_dev_count(ggml_backend_rd_reg()) == 0) {
+		pump::fail("pixal3d: no ggml-rd device (call pixal3d_attach first)");
+	}
+	const std::vector<uint8_t> bundle = read_all(g_job.ref);
+	if (bundle.size() < 24 || std::memcmp(bundle.data(), "SSDEC001", 8) != 0) {
+		pump::fail("pixal3d: bad SSDEC001 bundle " + g_job.ref);
+	}
+	int32_t dims[4];
+	std::memcpy(dims, bundle.data() + 8, sizeof dims);
+	const size_t n_in = size_t(dims[0]) * size_t(dims[1]) * size_t(dims[1]) * size_t(dims[1]);
+	const size_t n_out = size_t(dims[2]) * size_t(dims[3]) * size_t(dims[3]) * size_t(dims[3]);
+	if (bundle.size() != 24 + (n_in + n_out) * sizeof(float)) {
+		pump::fail("pixal3d: SSDEC001 bundle size does not match its header");
+	}
+	std::vector<float> latent(n_in);
+	std::vector<float> ref(n_out);
+	std::memcpy(latent.data(), bundle.data() + 24, n_in * sizeof(float));
+	std::memcpy(ref.data(), bundle.data() + 24 + n_in * sizeof(float), n_out * sizeof(float));
+	if (g_job.perturb) {
+		for (size_t i = 0; i < latent.size(); ++i) {
+			latent[i] += 0.05F * std::sin(float(i));
+		}
+	}
+	std::string err;
+	trellis2_ss_dec_model *model = trellis2_ss_dec_load(g_job.model, true, &err);
+	if (model == nullptr) {
+		pump::fail("pixal3d: model load failed: " + err);
+	}
+	logf_("backend: %s", trellis2_ss_dec_backend_name(model));
+	std::vector<float> out(n_out, 0.0F);
+	if (!trellis2_ss_dec_decode(model, latent.data(), out.data(), &err)) {
+		pump::fail("pixal3d: decode failed: " + err);
+	}
+	trellis2_ss_dec_free(model);
+	const Stats s = compare(out, ref, 1e30, 0.0);
+	// A voxel whose reference logit lies within 1.0 of zero (occupancy 0.27 to 0.73) may flip; a flip
+	// of a more confident voxel fails.
+	size_t flipped = 0;
+	size_t hard = 0;
+	size_t occupied = 0;
+	for (size_t i = 0; i < n_out; ++i) {
+		const bool flip = (out[i] > 0.0F) != (ref[i] > 0.0F);
+		flipped += flip ? 1 : 0;
+		hard += flip && std::fabs(ref[i]) > 1.0F ? 1 : 0;
+		occupied += ref[i] > 0.0F ? 1 : 0;
+	}
+	const bool pass = s.rel_l2 <= g_job.rel_l2 && hard == 0;
+	logf_("ss_dec out n=%zu max_abs=%.3e rel_l2=%.3e tol=%.1e occupied=%zu flipped=%zu hard=%zu", s.n, s.max_abs, s.rel_l2,
+			g_job.rel_l2, occupied, flipped, hard);
+	std::string line = g_job.perturb ? std::string("CONTROL ") + (pass ? "MISSED" : "DETECTED") : std::string("RESULT: ") + (pass ? "PASS" : "FAIL");
+	line += " rel_l2=" + std::to_string(s.rel_l2) + " flipped=" + std::to_string(flipped) + " hard=" + std::to_string(hard);
+	logf_("%s", line.c_str());
+	g_result.assign(line.begin(), line.end());
+}
+
 static std::vector<std::string> split_ws(const std::string &s) {
 	std::vector<std::string> r;
 	size_t i = 0;
@@ -320,19 +383,22 @@ static Variant pixal3d_attach(Object rd, int64_t total_mb) {
 	return Variant(String(g_attached ? "attached device=" + g_dev.device_name() : std::string("no RD device")));
 }
 
-static Variant pixal3d_start_stage(bool ssflow, String model_gguf, String ref_gguf, String opts);
+static Variant pixal3d_start_stage(int stage, String model_gguf, String ref_gguf, String opts);
 static Variant pixal3d_dino_start(String model_gguf, String ref_gguf, String opts) {
-	return pixal3d_start_stage(false, model_gguf, ref_gguf, opts);
+	return pixal3d_start_stage(0, model_gguf, ref_gguf, opts);
 }
 static Variant pixal3d_ssflow_start(String model_gguf, String ref_bin, String opts) {
-	return pixal3d_start_stage(true, model_gguf, ref_bin, opts);
+	return pixal3d_start_stage(1, model_gguf, ref_bin, opts);
 }
-static Variant pixal3d_start_stage(bool ssflow, String model_gguf, String ref_gguf, String opts) {
+static Variant pixal3d_ssdec_start(String model_gguf, String ref_bin, String opts) {
+	return pixal3d_start_stage(2, model_gguf, ref_bin, opts);
+}
+static Variant pixal3d_start_stage(int stage, String model_gguf, String ref_gguf, String opts) {
 	for (const char *k : { "GGML_RD_FAULT", "GGML_RD_BARRIER_ALL", "GGML_RD_TIMESTAMPS" }) {
 		unsetenv(k);
 	}
 	g_job = Job{};
-	g_job.ssflow = ssflow;
+	g_job.stage = stage;
 	g_job.model = model_gguf.utf8();
 	g_job.ref = ref_gguf.utf8();
 	for (const std::string &kv : split_ws(opts.utf8())) {
@@ -356,7 +422,7 @@ static Variant pixal3d_start_stage(bool ssflow, String model_gguf, String ref_gg
 	}
 	g_log.clear();
 	g_result.clear();
-	if (!pump::start(g_job.ssflow ? &ssflow_job : &dino_job, nullptr, size_t(16) << 20)) {
+	if (!pump::start(g_job.stage == 2 ? &ssdec_job : g_job.stage == 1 ? &ssflow_job : &dino_job, nullptr, size_t(16) << 20)) {
 		return Variant(String("FAIL a job is running"));
 	}
 	return Variant(String("STARTED dino"));
@@ -399,6 +465,7 @@ int main() {
 	ADD_API_FUNCTION(pixal3d_attach, "String", "Object rd, int total_mb", "Attach the host's RenderingDevice");
 	ADD_API_FUNCTION(pixal3d_dino_start, "String", "String model_gguf, String ref_gguf, String opts", "Gate the DINOv3 encoder against a reference dump on the pump");
 	ADD_API_FUNCTION(pixal3d_ssflow_start, "String", "String model_gguf, String ref_bin, String opts", "Gate the sparse-structure flow forward against an SSFREF01 bundle on the pump");
+	ADD_API_FUNCTION(pixal3d_ssdec_start, "String", "String model_gguf, String ref_bin, String opts", "Gate the sparse-structure decoder against an SSDEC001 bundle on the pump");
 	ADD_API_FUNCTION(pixal3d_pump, "Array", "PackedByteArray data", "Resume the job once: [header, text, rid]");
 	ADD_API_FUNCTION(pixal3d_result_size, "int", "", "Bytes of the report line");
 	ADD_API_FUNCTION(pixal3d_result_chunk, "PackedByteArray", "int offset, int bytes", "Report bytes (<= 8 MiB)");
