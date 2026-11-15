@@ -1,0 +1,14 @@
+[Unit]
+Description=Check the Pixal3D work upload for reproducibility (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=16G
+MemoryMax=24G
+EnvironmentFile=/run/pg-hf.env
+Environment=GODOT_BIN=/home/setup/tools/godot/godot.linuxbsd.editor.double.x86_64 GODOT_PROJECT=/home/setup/scratch/pg-run
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-pipe/pipeline/check_upload.sh
