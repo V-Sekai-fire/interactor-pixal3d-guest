@@ -32,3 +32,17 @@ MIT; see LICENSE.
 ## Spike result (sparse-structure decoder)
 
 `--stage=ssdec`: the decoder (f16 weights, 0.15 GB) on a sampled z_s (the fp32 flow on the fixture's conditioning, `tools/sample_ss_latent.py`) against the CPU fp32 decoder: rel-L2 1.4e-4 over the 64^3 logits, 18243 voxels occupied, one voxel flipped (its reference logit lies within 1.0 of zero; a flip of any more confident voxel fails). `control=perturb` gives rel-L2 1.3e-2 with 161 flips and reports `CONTROL DETECTED`. The Godot process sometimes hangs after printing the result instead of aborting; the runner needs a timeout.
+
+## Q4_0 and QAFT of the sparse-structure flow (TRELLIS.2 weights, not yet the Pixal3D multi-view flow)
+
+Measured with `tools/eval_ss_q4.py`: sample z_s from the same noise with each flow (12 steps, guidance 7.5 in [0.6, 1.0]), decode occupancy with the fp32 decoder and take the voxel IoU against the fp32 flow's occupancy, on 8 example images.
+
+| flow | mean IoU | min IoU |
+|---|---|---|
+| f16 weights (floor) | 1.000 | 1.000 |
+| plain Q4_0 | 0.702 | 0.087 |
+| block-wise QAFT Q4_0 (`tools/qaft_ss_flow.py`, 24 images, 2 epochs, 53 minutes on the 4090) | 0.844 | 0.683 |
+
+Block-wise held-out error fell 3x to 50x per block, but the whole-model velocity error only fell from 0.075 to 0.059 (rel-L2 against fp32, 88 held-out calls), so block matching alone does not make Q4_0 stable. The next steps are an end-to-end distillation pass (student velocity against teacher velocity on the whole trajectory, with the untrained input, timestep and output layers in the loss) and per-block scales.
+
+The Pixal3D flows have `image_attn_mode: proj` (pixel-aligned projection attention), which the vendored TRELLIS.2 graphs do not have, so these numbers describe the method on the TRELLIS.2 flow, and the multi-view flow needs the projection op before it can be gated.
