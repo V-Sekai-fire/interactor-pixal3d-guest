@@ -24,3 +24,7 @@ MIT; see LICENSE.
 ## Spike result (sparse-structure flow)
 
 `pixal3d_stages.elf --stage=ssflow`, same host, the 1.3B flow DiT with f16 matrices and f32 norms (the checkpoint's bf16 values, which f16 holds exactly) against a CPU fp32 PyTorch forward (x seeded, t=500, cond from the DINOv3 dump): rel-L2 5.5e-4 against a tolerance of 2e-3, about 6.5 s including the 2.6 GB weight load. `control=perturb` (x nudged by 0.05 sin(i)) gives rel-L2 6.0e-2 and reports `CONTROL DETECTED`. A GGUF with every tensor in bf16 aborts in ggml (the graph adds bf16 biases to f32 activations), so the converter's f16 type is the one to use until ggml-rd takes bf16 elementwise operands.
+
+## Spike result (sparse-structure flow in Q4_0)
+
+`convert_ss_flow_to_gguf.py --ftype 3` writes the matmul weights as Q4_0 (213 tensors; the rest stay f32, one small input layer f16): 0.78 GB against 2.6 GB for f16. It runs on ggml-rd with the new Q4_0 MUL_MAT kernels (contract-ggml-rd branch `dev/q4_0-mul-mat`, built into the guest through a `WEFT_ROOT` that points `2-contract/ggml-rd` at that branch). Against a reference forward whose weights went through the same Q4_0 round trip (`tests/ref_ss_flow_q4.py`), rel-L2 is 2.9e-6: the kernel is right. Against the fp32 reference the same forward is 0.17 off, all of it weight rounding, so plain Q4_0 needs quantization-aware fine-tuning before it is shippable.

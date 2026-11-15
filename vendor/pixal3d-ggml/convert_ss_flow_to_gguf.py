@@ -42,6 +42,7 @@ GGUF_ALIGNMENT = 32
 # GGML tensor types
 GGML_TYPE_F32 = 0
 GGML_TYPE_F16 = 1
+GGML_TYPE_Q4_0 = 2
 GGML_TYPE_BF16 = 30
 
 # GGUF metadata value types
@@ -88,9 +89,12 @@ def choose_type(name: str, shape, ftype: int) -> int:
         return GGML_TYPE_F32
     if ftype == 2:
         return GGML_TYPE_BF16
-    # ftype == 1: f16 for the big 2-D weight matrices, f32 for everything that
+    # ftype 1 and 3: f16 for the big 2-D weight matrices, f32 for everything that
     # is precision-sensitive (norm gammas, modulation, biases, all 1-D).
+    # ftype 3 puts the 2-D weights whose rows hold whole 32-blocks in Q4_0 instead.
     keep_f32 = ("gamma" in name) or ("modulation" in name) or ("norm" in name)
+    if ftype == 3 and len(shape) >= 2 and not keep_f32 and shape[-1] % 32 == 0:
+        return GGML_TYPE_Q4_0
     if len(shape) >= 2 and not keep_f32:
         return GGML_TYPE_F16
     return GGML_TYPE_F32
@@ -109,6 +113,9 @@ def to_bytes(t, ggml_type: int) -> bytes:
         u32 = t.float().numpy().view(np.uint32)
         rounded = (u32 + 0x7FFF + ((u32 >> 16) & 1)) >> 16
         return rounded.astype("<u2", copy=False).tobytes()
+    if ggml_type == GGML_TYPE_Q4_0:
+        import gguf
+        return gguf.quants.quantize(t.float().numpy(), gguf.GGMLQuantizationType.Q4_0).tobytes()
     raise ValueError(f"unhandled ggml type {ggml_type}")
 
 
@@ -129,8 +136,8 @@ def main():
     ap.add_argument("--model", default=None, help="path to ...ss_flow...safetensors (default: HF cache)")
     ap.add_argument("--config", default=None, help="path to matching .json (default: alongside model)")
     ap.add_argument("--output", default=None, help="output .gguf (default: <stem>.gguf)")
-    ap.add_argument("--ftype", type=int, default=1, choices=[0, 1, 2],
-                    help="0=f32, 1=f16 (default), 2=bf16")
+    ap.add_argument("--ftype", type=int, default=1, choices=[0, 1, 2, 3],
+                    help="0=f32, 1=f16 (default), 2=bf16, 3=q4_0 weights with f16/f32 for the rest")
     args = ap.parse_args()
 
     from safetensors.torch import load_file
@@ -175,7 +182,7 @@ def main():
     sd = load_file(model_path)
 
     tensors = []  # (name, ggml_type, dims_ggml_order, raw_bytes)
-    counts = {GGML_TYPE_F32: 0, GGML_TYPE_F16: 0, GGML_TYPE_BF16: 0}
+    counts = {GGML_TYPE_F32: 0, GGML_TYPE_F16: 0, GGML_TYPE_BF16: 0, GGML_TYPE_Q4_0: 0}
     for name in sorted(sd.keys()):
         t = sd[name]
         shape = tuple(t.shape)
@@ -186,7 +193,8 @@ def main():
         counts[gtype] += 1
 
     print(f"tensors: {len(tensors)}  "
-          f"(f32={counts[GGML_TYPE_F32]}, f16={counts[GGML_TYPE_F16]}, bf16={counts[GGML_TYPE_BF16]})")
+          f"(f32={counts[GGML_TYPE_F32]}, f16={counts[GGML_TYPE_F16]}, bf16={counts[GGML_TYPE_BF16]}, "
+          f"q4_0={counts[GGML_TYPE_Q4_0]})")
 
     # ── assemble header + infos, compute aligned data offsets ────────────────
     header = bytearray()
