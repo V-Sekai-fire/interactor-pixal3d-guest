@@ -41,16 +41,16 @@ def test_gate_texture(tmp_path):
 
 
 def test_gate_source_kept(tmp_path):
-    src = sphere(tmp_path / "src.glb")
-    same = sphere(tmp_path / "same.glb")
-    assert gate_source_kept(same, src) == []
-    # a bigger shell around the source keeps it: an edit may add material
-    assert gate_source_kept(sphere(tmp_path / "bump.glb", radius=1.04), src) == []
-    # a sphere somewhere else does not
-    away = sphere(tmp_path / "away.glb", centre=(0.9, 0, 0), radius=0.4)
+    # the gate reads the edit in the unit frame the generator writes (longest side 1), so the spheres have radius 0.5
+    src = sphere(tmp_path / "src.glb", radius=0.5)
+    assert gate_source_kept(sphere(tmp_path / "same.glb", radius=0.5), src) == []
+    # a slightly larger shell around the source keeps it: an edit may add material
+    assert gate_source_kept(sphere(tmp_path / "bump.glb", radius=0.52), src) == []
+    # control: a small sphere somewhere else does not keep it
+    away = sphere(tmp_path / "away.glb", centre=(0.45, 0, 0), radius=0.2)
     assert gate_source_kept(away, src) != []
-    # a noise cube around it does not keep it either
-    cube = trimesh.creation.box(extents=(2, 2, 2))
+    # control: a noise cube around it does not keep it either
+    cube = trimesh.creation.box(extents=(1.6, 1.6, 1.6))
     cube = trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(cube.vertices, cube.faces, 0.05), process=False)
     cube.export(tmp_path / "cube.glb")
     assert gate_source_kept(tmp_path / "cube.glb", src) != []

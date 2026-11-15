@@ -23,7 +23,7 @@ def _env():
 def _run(args):
     e = _env()
     cmd = [e["GODOT_BIN"], "--path", e["GODOT_PROJECT"], "--script", str(HERE / "remesh.gd"), "--", f"--elf={e['REMESH_ELF']}", *args]
-    p = subprocess.run(cmd, capture_output=True, text=True, env=e, timeout=1800)
+    p = subprocess.run(cmd, capture_output=True, text=True, env=e, timeout=int(e.get('REMESH_TIMEOUT', '180')))  # Godot can hang after printing its result
     return p.stdout + p.stderr
 
 

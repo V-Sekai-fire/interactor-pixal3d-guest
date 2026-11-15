@@ -1,0 +1,14 @@
+[Unit]
+Description=Binary-translate a guest ELF for the Pixal3D pipeline (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=8G
+MemoryMax=12G
+Environment=GODOT_BIN=/home/setup/tools/godot/godot.linuxbsd.editor.double.x86_64 GODOT_PROJECT=/home/setup/scratch/pg-run
+Environment=DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-pipe/pipeline/bintr.sh /home/setup/scratch/remesh-guest/build/remesh-d/remesh

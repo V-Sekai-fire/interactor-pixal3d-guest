@@ -1,0 +1,16 @@
+[Unit]
+Description=Pixal3D pipeline gate tests (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=600
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=8G
+MemoryMax=12G
+Environment=PIXAL3D_HOME=/home/setup/scratch/pg-pipe/.cache PIXAL3D_OUT=/tmp/pipe-out
+Environment=REMESH_ELF=/home/setup/scratch/remesh-guest/build/remesh-d/remesh GODOT_BIN=/home/setup/tools/godot/godot.linuxbsd.editor.double.x86_64 GODOT_PROJECT=/home/setup/scratch/pg-run REMESH_TIMEOUT=120
+Environment=DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+ExecStartPre=/usr/bin/mkdir -p /tmp/pipe-out
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-pipe/pipeline/run_tests.sh

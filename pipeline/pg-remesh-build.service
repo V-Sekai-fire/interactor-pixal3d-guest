@@ -1,0 +1,12 @@
+[Unit]
+Description=Build remesh.elf in double precision (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=8G
+MemoryMax=12G
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-pipe/pipeline/build_remesh.sh

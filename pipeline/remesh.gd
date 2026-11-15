@@ -17,7 +17,9 @@ func _initialize() -> void:
 	sb.execution_timeout = 0
 	sb.load_buffer(FileAccess.get_file_as_bytes(a.elf))
 	if a.has("gate"):
+		var t0 := Time.get_ticks_msec()
 		print("GATE ", sb.vmcall("gate", int(a.gate)))
+		print("BINTR translated=", sb.is_binary_translated(), " ms=", Time.get_ticks_msec() - t0)
 		quit(0)
 		return
 	var f := FileAccess.open(a["in"], FileAccess.READ)
