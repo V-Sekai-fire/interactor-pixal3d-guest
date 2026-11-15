@@ -1,0 +1,15 @@
+[Unit]
+Description=Binary-translate pixal3d_stages.elf and compare with the interpreted run (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=16G
+MemoryMax=24G
+Environment=GODOT_BIN=/home/setup/tools/godot/godot.linuxbsd.editor.double.x86_64 GODOT_PROJECT=/home/setup/scratch/pg-run
+Environment=ELF=/home/setup/scratch/pg-build-q4/pixal3d_stages.elf MODEL=/home/setup/scratch/pg-ref/ss_dec_f16.gguf REF=/home/setup/scratch/pg-ref/ss_dec_ref.bin STAGE=ssdec
+Environment=DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-pipe/pipeline/bintr_stages.sh
