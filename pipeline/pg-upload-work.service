@@ -1,0 +1,11 @@
+[Unit]
+Description=Upload the Pixal3D work to a private HF model repo (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=7200
+Nice=10
+IOSchedulingClass=idle
+EnvironmentFile=/run/pg-hf.env
+ExecStart=/usr/bin/bash -c 'export PATH=$HOME/.pixi/bin:$PATH; cd /home/setup/scratch/pg-pipe && uv run --quiet --with huggingface_hub,hf_xet python pipeline/upload_work.py'
