@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the whole Pixal3D pipeline from a fresh export (oneshot)
+
+[Service]
+Type=oneshot
+User=setup
+TimeoutStartSec=21600
+Nice=10
+IOSchedulingClass=idle
+MemoryHigh=96G
+MemoryMax=110G
+Environment=SRC_TAR=/home/setup/scratch/pg-work-stage/fresh-src.tar.gz IMAGE=/home/setup/scratch/pg-ref/TRELLIS.2/assets/example_image/T.png
+Environment="INSTRUCTION=Place a fluffy brown teddy bear sitting upright on the seat cushion"
+Environment=REMESH_ELF=/home/setup/scratch/remesh-guest/build/remesh-d/remesh GODOT_BIN=/home/setup/tools/godot/godot.linuxbsd.editor.double.x86_64 GODOT_PROJECT=/home/setup/scratch/pg-run
+Environment=DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/bash /home/setup/scratch/pg-fresh-run-script.sh
